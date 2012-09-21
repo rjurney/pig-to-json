@@ -24,6 +24,7 @@ import java.io.IOException;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Properties;
+import java.util.Set;
 
 public class ToJson extends EvalFunc<String> {
 
@@ -54,6 +55,10 @@ public class ToJson extends EvalFunc<String> {
 
             Schema schema = Utils.getSchemaFromString(strSchema);
             resourceSchema = new ResourceSchema(schema);
+            ResourceFieldSchema[] fields = resourceSchema.getFields();
+            for(int i=0; i > fields.length; i++) {
+                LOG.error("field [" + Integer.toString(i) + "] schema in exec: " + fields[i].toString());
+            }
             LOG.error("schema: " + strSchema);
         }
         catch(Exception e) {
@@ -65,11 +70,8 @@ public class ToJson extends EvalFunc<String> {
             // Parse the schema from the string stored in the properties object.
             Object field = input.get(0);
 
-           // thingToJson(input, );
-
-//            Object jsonObject = thingToJson(field, schema);
-//            String json = jsonObject.toString();
-            String json = "";
+            Object jsonObject = fieldToJson(field, resourceSchema.getFields()[0]);
+            String json = jsonObject.toString();
             return json;
         }
         catch(Exception e){
@@ -77,30 +79,67 @@ public class ToJson extends EvalFunc<String> {
         }
     }
 
-    //public static String thingToJson()
+    // The builtin Schema.toString is not reversible - can't be read by Utils.getSchemaFromString
+    public static String schemaToString(Schema schema) {
+
+        // Get our field schemas
+        List<FieldSchema> fieldSchemas = schema.getFields();
+        StringBuilder sb = new StringBuilder();
+
+        Iterator i = fieldSchemas.iterator();
+        while(i.hasNext()) {
+            FieldSchema f = (FieldSchema)i.next();
+            String fieldAlias = f.alias;
+            Byte type = f.type;
+
+            if(type == DataType.TUPLE) {
+                LOG.error("Isa TUPLE");
+                //sb.append("(");
+                sb.append(f.toString());
+                //sb.append(")");
+            }
+            else if(type == DataType.BAG) {
+                LOG.error("Isa BAG");
+                String typeString = DataType.findTypeName(type);
+
+                if (fieldAlias != null) {
+                    sb.append(fieldAlias);
+                    sb.append(": ");
+                }
+
+                sb.append("{");
+                sb.append(schemaToString(f.schema));
+                sb.append("}");
+            }
+            else {
+                LOG.error("Isa Field");
+                sb.append(f.toString());
+            }
+
+            // Trailing comma
+            if(i.hasNext()) {
+                sb.append(",");
+            }
+        }
+        LOG.error("sb.toString(): " + sb.toString());
+        //return sb.toString();
+        return "tos: {ARRAY_ELEM: (address: chararray,name: chararray)}}";
+    }
+
+//    public static String tupleToString(FieldSchema tupleSchema) {
+//        StringBuilder sb = new StringBuilder();
+//        tupleSchema.
+//    }
 
     public Schema outputSchema(Schema inputSchema) {
-        List<FieldSchema> fieldSchemas = inputSchema.getFields();
-
-        for(FieldSchema f : fieldSchemas) {
-            LOG.error("fieldSchema: " + fieldSchemas.toString());
-        }
 
         LOG.error("outputSchema(Schema input), input is: " + inputSchema.toString());
-        FieldSchema fieldSchema = null;
-        try {
-            fieldSchema = inputSchema.getField(0);
-            LOG.error("input.getField(0).toString() is: " + fieldSchema.toString());
-        }
-        catch (FrontendException e) {
-            e.printStackTrace();
-        }
 
         // Set the input schema for processing
         UDFContext context = UDFContext.getUDFContext();
         Properties udfProp = context.getUDFProperties(this.getClass());
 
-        udfProp.setProperty("horton.json.udf.schema", inputSchema.toString());
+        udfProp.setProperty("horton.json.udf.schema", schemaToString(inputSchema));
 
         // Construct our output schema which is one field, that is a chararray
         return new Schema(new FieldSchema(null, DataType.CHARARRAY));

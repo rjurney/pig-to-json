@@ -11,3 +11,4 @@ emails = load '/me/Data/enron.avro' using AvroStorage();
 json_test = foreach emails generate message_id, com.hortonworks.pig.udf.ToJson(tos) as from_json;
 a = limit json_test 10;
 dump a
+xb
