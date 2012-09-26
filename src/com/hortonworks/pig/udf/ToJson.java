@@ -2,8 +2,6 @@ package com.hortonworks.pig.udf;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.apache.pig.ResourceSchema;
-import org.apache.pig.ResourceSchema.ResourceFieldSchema;
 import org.apache.pig.backend.executionengine.ExecException;
 import org.apache.pig.impl.logicalLayer.FrontendException;
 import org.apache.pig.impl.logicalLayer.parser.ParseException;
@@ -49,15 +47,14 @@ public class ToJson extends EvalFunc<String> {
             throw new IOException("Could not find schema in UDF context");
         }
 
-        ResourceSchema resourceSchema = null;
+        Schema schema = null;
         try {
             LOG.error("Backend got schema: " + strSchema);
 
-            Schema schema = Utils.getSchemaFromString(strSchema);
-            resourceSchema = new ResourceSchema(schema);
-            ResourceFieldSchema[] fields = resourceSchema.getFields();
-            for(int i=0; i > fields.length; i++) {
-                LOG.error("field [" + Integer.toString(i) + "] schema in exec: " + fields[i].toString());
+            schema = Utils.getSchemaFromString(strSchema);
+            List<FieldSchema> fields = schema.getFields();
+            for(int i=0; i > fields.size(); i++) {
+                LOG.error("field [" + Integer.toString(i) + "] schema in exec: " + fields.get(i).toString());
             }
             LOG.error("schema: " + strSchema);
         }
@@ -70,7 +67,7 @@ public class ToJson extends EvalFunc<String> {
             // Parse the schema from the string stored in the properties object.
             Object field = input.get(0);
 
-            Object jsonObject = fieldToJson(field, resourceSchema.getFields()[0]);
+            Object jsonObject = fieldToJson(field, schema.getFields().get(0));
             String json = jsonObject.toString();
             return json;
         }
@@ -79,67 +76,18 @@ public class ToJson extends EvalFunc<String> {
         }
     }
 
-    // The builtin Schema.toString is not reversible - can't be read by Utils.getSchemaFromString
-    public static String schemaToString(Schema schema) {
-
-        // Get our field schemas
-        List<FieldSchema> fieldSchemas = schema.getFields();
-        StringBuilder sb = new StringBuilder();
-
-        Iterator i = fieldSchemas.iterator();
-        while(i.hasNext()) {
-            FieldSchema f = (FieldSchema)i.next();
-            String fieldAlias = f.alias;
-            Byte type = f.type;
-
-            if(type == DataType.TUPLE) {
-                LOG.error("Isa TUPLE");
-                //sb.append("(");
-                sb.append(f.toString());
-                //sb.append(")");
-            }
-            else if(type == DataType.BAG) {
-                LOG.error("Isa BAG");
-                String typeString = DataType.findTypeName(type);
-
-                if (fieldAlias != null) {
-                    sb.append(fieldAlias);
-                    sb.append(": ");
-                }
-
-                sb.append("{");
-                sb.append(schemaToString(f.schema));
-                sb.append("}");
-            }
-            else {
-                LOG.error("Isa Field");
-                sb.append(f.toString());
-            }
-
-            // Trailing comma
-            if(i.hasNext()) {
-                sb.append(",");
-            }
-        }
-        LOG.error("sb.toString(): " + sb.toString());
-        //return sb.toString();
-        return "tos: {ARRAY_ELEM: (address: chararray,name: chararray)}}";
-    }
-
-//    public static String tupleToString(FieldSchema tupleSchema) {
-//        StringBuilder sb = new StringBuilder();
-//        tupleSchema.
-//    }
-
     public Schema outputSchema(Schema inputSchema) {
 
         LOG.error("outputSchema(Schema input), input is: " + inputSchema.toString());
+
+        // We must strip the outer {} or this schema won't parse on the back-end
+        String schemaString = inputSchema.toString().substring(1, inputSchema.toString().length() - 1);
 
         // Set the input schema for processing
         UDFContext context = UDFContext.getUDFContext();
         Properties udfProp = context.getUDFProperties(this.getClass());
 
-        udfProp.setProperty("horton.json.udf.schema", schemaToString(inputSchema));
+        udfProp.setProperty("horton.json.udf.schema", schemaString);
 
         // Construct our output schema which is one field, that is a chararray
         return new Schema(new FieldSchema(null, DataType.CHARARRAY));
@@ -149,13 +97,13 @@ public class ToJson extends EvalFunc<String> {
      * Convert a Pig Tuple into a JSON object
      */
     @SuppressWarnings("unchecked")
-    protected static JSONObject tupleToJson(Tuple t, ResourceFieldSchema tupleField) throws ExecException {
+    protected static JSONObject tupleToJson(Tuple t, FieldSchema tupleFieldSchema) throws ExecException {
         JSONObject json = new JSONObject();
-        ResourceFieldSchema[] fieldSchemas = tupleField.getSchema().getFields();
+        List<FieldSchema> fieldSchemas = tupleFieldSchema.schema.getFields();
         for (int i=0; i<t.size(); i++) {
             Object field = t.get(i);
-            ResourceFieldSchema fieldSchema =fieldSchemas[i];
-            json.put(fieldSchema.getName(), fieldToJson(field, fieldSchema));
+            FieldSchema fieldSchema = fieldSchemas.get(i);
+            json.put(fieldSchema.alias, fieldToJson(field, fieldSchema));
         }
         return json;
     }
@@ -164,17 +112,22 @@ public class ToJson extends EvalFunc<String> {
      * Convert a Pig Bag to a JSON array
      */
     @SuppressWarnings("unchecked")
-    private static JSONArray bagToJson(DataBag bag, ResourceFieldSchema bagField) throws ExecException {
+    private static JSONArray bagToJson(DataBag bag, FieldSchema bagFieldSchema) throws ExecException {
         JSONArray array = new JSONArray();
-        ResourceFieldSchema[] bagSchema = bagField.getSchema().getFields();
-        Iterator<Tuple> iterator = bag.iterator();
-        int i=0;
-        while(iterator.hasNext()) {
-            Tuple t = iterator.next();
-            ResourceFieldSchema tupleSchema = bagSchema[i];
+        System.out.println("bagFieldSchema: " + bagFieldSchema.toString());
+        FieldSchema tupleSchema = null;
+        try {
+            tupleSchema = bagFieldSchema.schema.getField(0);
+        }
+        catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        Iterator<Tuple> bagIterator = bag.iterator();
+        while(bagIterator.hasNext()) {
+            Tuple t = bagIterator.next();
             JSONObject recJson = tupleToJson(t, tupleSchema);
             array.add(recJson);
-            i++;
         }
         return array;
     }
@@ -182,7 +135,8 @@ public class ToJson extends EvalFunc<String> {
     /**
      * Find the type of a field and convert it to JSON as required.
      */
-    private static Object fieldToJson(Object value, ResourceFieldSchema field) throws ExecException {
+    private static Object fieldToJson(Object value, FieldSchema field) throws ExecException {
+
         switch (DataType.findType(value)) {
             // Native types that don't need converting
             case DataType.NULL:
