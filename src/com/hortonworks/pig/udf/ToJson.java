@@ -47,14 +47,13 @@ public class ToJson extends EvalFunc<String> {
             schema = Utils.getSchemaFromString(strSchema);
         }
         catch(Exception e) {
-            e.printStackTrace();
             LOG.error("Unable to parse schema: " + strSchema);
+            e.printStackTrace();
         }
 
         try {
             // Parse the schema from the string stored in the properties object.
             Object field = input.get(0);
-
             Object jsonObject = fieldToJson(field, schema.getFields().get(0));
             String json = jsonObject.toString();
             return json;
@@ -105,6 +104,7 @@ public class ToJson extends EvalFunc<String> {
             tupleSchema = bagFieldSchema.schema.getField(0);
         }
         catch (Exception e) {
+            LOG.error("Unable to parse schema: " + bagFieldSchema);
             e.printStackTrace();
         }
 
