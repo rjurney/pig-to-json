@@ -7,6 +7,6 @@ define AvroStorage org.apache.pig.piggybank.storage.avro.AvroStorage();
 register /me/Software/pig-to-json/dist/lib/pig-to-json.jar
 
 emails = load '/me/Data/enron.avro' using AvroStorage();
-json_test = foreach emails generate message_id, com.hortonworks.pig.udf.ToJson(tos) as from_json;
-a = limit json_test 10;
-dump a
+emails = limit emails 10;
+json_test = foreach emails generate message_id, com.hortonworks.pig.udf.ToJson(tos) as to_json;
+dump json_test

@@ -66,8 +66,6 @@ public class ToJson extends EvalFunc<String> {
 
     public Schema outputSchema(Schema inputSchema) {
 
-        LOG.error("outputSchema(Schema input), input is: " + inputSchema.toString());
-
         // We must strip the outer {} or this schema won't parse on the back-end
         String schemaString = inputSchema.toString().substring(1, inputSchema.toString().length() - 1);
 
@@ -102,7 +100,6 @@ public class ToJson extends EvalFunc<String> {
     @SuppressWarnings("unchecked")
     private static JSONArray bagToJson(DataBag bag, FieldSchema bagFieldSchema) throws ExecException {
         JSONArray array = new JSONArray();
-        System.out.println("bagFieldSchema: " + bagFieldSchema.toString());
         FieldSchema tupleSchema = null;
         try {
             tupleSchema = bagFieldSchema.schema.getField(0);
