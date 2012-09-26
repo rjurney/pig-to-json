@@ -3,13 +3,10 @@ package com.hortonworks.pig.udf;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.pig.backend.executionengine.ExecException;
-import org.apache.pig.impl.logicalLayer.FrontendException;
-import org.apache.pig.impl.logicalLayer.parser.ParseException;
 import org.apache.pig.impl.logicalLayer.schema.Schema.FieldSchema;
 import org.apache.pig.builtin.LOG;
 import org.apache.pig.data.DataBag;
 import org.apache.pig.data.DataType;
-import org.apache.pig.data.DefaultDataBag;
 import org.apache.pig.data.Tuple;
 import org.apache.pig.EvalFunc;
 import org.apache.pig.impl.logicalLayer.schema.Schema;
@@ -22,7 +19,6 @@ import java.io.IOException;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Properties;
-import java.util.Set;
 
 public class ToJson extends EvalFunc<String> {
 
@@ -40,7 +36,6 @@ public class ToJson extends EvalFunc<String> {
         }
 
         String strSchema = myProperties.getProperty("horton.json.udf.schema");
-        LOG.error("Schema: " + strSchema);
 
         // You must set the schema or we cannot convert to JSON - duh!
         if (strSchema == null) {
@@ -49,14 +44,7 @@ public class ToJson extends EvalFunc<String> {
 
         Schema schema = null;
         try {
-            LOG.error("Backend got schema: " + strSchema);
-
             schema = Utils.getSchemaFromString(strSchema);
-            List<FieldSchema> fields = schema.getFields();
-            for(int i=0; i > fields.size(); i++) {
-                LOG.error("field [" + Integer.toString(i) + "] schema in exec: " + fields.get(i).toString());
-            }
-            LOG.error("schema: " + strSchema);
         }
         catch(Exception e) {
             e.printStackTrace();
@@ -135,8 +123,7 @@ public class ToJson extends EvalFunc<String> {
     /**
      * Find the type of a field and convert it to JSON as required.
      */
-    private static Object fieldToJson(Object value, FieldSchema field) throws ExecException {
-
+    private static Object fieldToJson(Object value, FieldSchema fieldSchema) throws ExecException {
         switch (DataType.findType(value)) {
             // Native types that don't need converting
             case DataType.NULL:
@@ -146,13 +133,13 @@ public class ToJson extends EvalFunc<String> {
             case DataType.FLOAT:
             case DataType.DOUBLE:
             case DataType.CHARARRAY:
-                return field;
+                return value;
 
             case DataType.TUPLE:
-                return tupleToJson((Tuple)value, field);
+                return tupleToJson((Tuple)value, fieldSchema);
 
             case DataType.BAG:
-                return bagToJson(DataType.toBag((DataBag)value), field);
+                return bagToJson(DataType.toBag((DataBag)value), fieldSchema);
 
             case DataType.MAP:
                 throw new ExecException("Map type is not current supported with JsonStorage");
