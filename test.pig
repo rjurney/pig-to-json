@@ -32,7 +32,7 @@ dump json_test2
 (<765.1075860359973.JavaMail.evans@thyme>,{"address":"mary.hain@enron.com","name":null}) */
 
 -- This works for arbitrarily complex data structures as well
-a = foreach (group emails by from.address) generate group as from_address, COUNT_STAR(emails) as sent_count, FLATTEN(ema.tos) as tos;  
+a = foreach (group emails by from.address) generate group as from_address, COUNT_STAR(emails) as sent_count, FLATTEN(emails.tos) as tos;  
 b = group a by from_address;
 c = foreach b generate group as from_address, com.hortonworks.pig.udf.ToJson(a) as json_test;
 store c into '/tmp/big_test_num';
