@@ -3,6 +3,12 @@ pig-to-json
 
 A Pig to JSON UDF for Pig that converts tuples and bags to JSON strings. This code is free under the Apache 2.0 license.
 
+### Building the Project
+```
+ant clean
+ant dist
+```
+
 ### Using the ToJson UDF
 
 The file test.pig is illustrative:
