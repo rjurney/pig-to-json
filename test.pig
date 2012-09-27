@@ -9,6 +9,18 @@ register /me/Software/pig-to-json/dist/lib/pig-to-json.jar
 -- Enron emails are available at https://s3.amazonaws.com/rjurney_public_web/hadoop/enron.avro
 emails = load '/me/Data/enron.avro' using AvroStorage();
 emails = limit emails 10;
+
+/* describe emails
+emails: {message_id: chararray,
+            date: chararray,
+            from: (address: chararray,name: chararray),
+            subject: chararray,
+            body: chararray,
+            tos: {ARRAY_ELEM: (address: chararray,name: chararray)},
+            ccs: {ARRAY_ELEM: (address: chararray,name: chararray)},
+            bccs: {ARRAY_ELEM: (address: chararray,name: chararray)}
+            } */
+
 json_test = foreach emails generate message_id, com.hortonworks.pig.udf.ToJson(tos) as bag_json;
 dump json_test
 
