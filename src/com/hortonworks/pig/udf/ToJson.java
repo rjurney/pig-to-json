@@ -24,7 +24,24 @@ public class ToJson extends EvalFunc<String> {
 
     private static final Log LOG = LogFactory.getLog(ToJson.class);
 
+    private final boolean _dropFieldsWithErrors;
+
     Properties myProperties = null;
+
+    public ToJson()
+    {
+      this("false");
+    }
+
+    public ToJson(String dropFieldsWithErrors)
+    {
+        if ("true".equals(dropFieldsWithErrors) || "dropFieldsWithErrors".equals(dropFieldsWithErrors)) {
+            _dropFieldsWithErrors = true;
+        }
+        else {
+            _dropFieldsWithErrors = false;
+        }
+    }
 
     public String exec(Tuple input) throws IOException {
         if (input == null || input.size() == 0)
@@ -54,7 +71,7 @@ public class ToJson extends EvalFunc<String> {
         try {
             // Parse the schema from the string stored in the properties object.
             Object field = input.get(0);
-            Object jsonObject = fieldToJson(field, schema.getFields().get(0));
+            Object jsonObject = fieldToJson(field, schema.getFields().get(0), _dropFieldsWithErrors);
             String json = jsonObject.toString();
             return json;
         }
@@ -82,13 +99,25 @@ public class ToJson extends EvalFunc<String> {
      * Convert a Pig Tuple into a JSON object
      */
     @SuppressWarnings("unchecked")
-    protected static JSONObject tupleToJson(Tuple t, FieldSchema tupleFieldSchema) throws ExecException {
+    protected static JSONObject tupleToJson(Tuple t, FieldSchema tupleFieldSchema, boolean dropFieldsWithErrors) throws ExecException {
         JSONObject json = new JSONObject();
         List<FieldSchema> fieldSchemas = tupleFieldSchema.schema.getFields();
         for (int i=0; i<t.size(); i++) {
             Object field = t.get(i);
             FieldSchema fieldSchema = fieldSchemas.get(i);
-            json.put(fieldSchema.alias, fieldToJson(field, fieldSchema));
+
+            // sometimes we want to skip fields with errors, instead of failing everything
+            if (dropFieldsWithErrors) {
+                try {
+                    json.put(fieldSchema.alias, fieldToJson(field, fieldSchema, dropFieldsWithErrors));
+                }
+                catch (ExecException e) {
+                  LOG.error("Skipping bad field. Schema: " + fieldSchema + " Value: " + field, e);
+                }
+            }
+            else {
+                json.put(fieldSchema.alias, fieldToJson(field, fieldSchema, dropFieldsWithErrors));
+            }
         }
         return json;
     }
@@ -97,7 +126,7 @@ public class ToJson extends EvalFunc<String> {
      * Convert a Pig Bag to a JSON array
      */
     @SuppressWarnings("unchecked")
-    private static JSONArray bagToJson(DataBag bag, FieldSchema bagFieldSchema) throws ExecException {
+    private static JSONArray bagToJson(DataBag bag, FieldSchema bagFieldSchema, boolean dropFieldsWithErrors) throws ExecException {
         JSONArray array = new JSONArray();
         FieldSchema tupleSchema = null;
         try {
@@ -111,7 +140,7 @@ public class ToJson extends EvalFunc<String> {
         Iterator<Tuple> bagIterator = bag.iterator();
         while(bagIterator.hasNext()) {
             Tuple t = bagIterator.next();
-            JSONObject recJson = tupleToJson(t, tupleSchema);
+            JSONObject recJson = tupleToJson(t, tupleSchema, dropFieldsWithErrors);
             array.add(recJson);
         }
         return array;
@@ -120,7 +149,7 @@ public class ToJson extends EvalFunc<String> {
     /**
      * Find the type of a field and convert it to JSON as required.
      */
-    private static Object fieldToJson(Object value, FieldSchema fieldSchema) throws ExecException {
+    private static Object fieldToJson(Object value, FieldSchema fieldSchema, boolean dropFieldsWithErrors) throws ExecException {
         switch (DataType.findType(value)) {
             // Native types that don't need converting
             case DataType.NULL:
@@ -133,22 +162,22 @@ public class ToJson extends EvalFunc<String> {
                 return value;
 
             case DataType.TUPLE:
-                return tupleToJson((Tuple)value, fieldSchema);
+                return tupleToJson((Tuple)value, fieldSchema, dropFieldsWithErrors);
 
             case DataType.BAG:
-                return bagToJson(DataType.toBag((DataBag)value), fieldSchema);
+                return bagToJson(DataType.toBag((DataBag)value), fieldSchema, dropFieldsWithErrors);
 
             case DataType.MAP:
-                throw new ExecException("Map type is not current supported with JsonStorage");
+                throw new ExecException("Map type is not currently supported with JsonStorage");
 
             case DataType.BYTE:
-                throw new ExecException("Byte type is not current supported with JsonStorage");
+                throw new ExecException("Byte type is not currently supported with JsonStorage");
 
             case DataType.BYTEARRAY:
-                throw new ExecException("ByteArray type is not current supported with JsonStorage");
+                throw new ExecException("ByteArray type is not currently supported with JsonStorage");
 
             default:
-                throw new ExecException("Unknown type is not current supported with JsonStorage");
+                throw new ExecException("Unknown type is not currently supported with JsonStorage");
         }
     }
 }
