@@ -17,15 +17,16 @@
 /**
  * Modifications: By Russell Melick
  * Modified Constructor to accept parameter to drop fields with errors.
+ * Converted static methods to instance methods for ease of using _dropFieldsWithErrors
  */
 
 package com.hortonworks.pig.udf;
 
+import java.util.Map;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.pig.backend.executionengine.ExecException;
 import org.apache.pig.impl.logicalLayer.schema.Schema.FieldSchema;
-import org.apache.pig.builtin.LOG;
 import org.apache.pig.data.DataBag;
 import org.apache.pig.data.DataType;
 import org.apache.pig.data.Tuple;
@@ -37,7 +38,6 @@ import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
 
 import java.io.IOException;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Properties;
 
@@ -92,7 +92,7 @@ public class ToJson extends EvalFunc<String> {
         try {
             // Parse the schema from the string stored in the properties object.
             Object field = input.get(0);
-            Object jsonObject = fieldToJson(field, schema.getFields().get(0), _dropFieldsWithErrors);
+            Object jsonObject = fieldToJson(field, schema.getFields().get(0));
             String json = jsonObject.toString();
             return json;
         }
@@ -120,7 +120,7 @@ public class ToJson extends EvalFunc<String> {
      * Convert a Pig Tuple into a JSON object
      */
     @SuppressWarnings("unchecked")
-    protected static JSONObject tupleToJson(Tuple t, FieldSchema tupleFieldSchema, boolean dropFieldsWithErrors) throws ExecException {
+    protected JSONObject tupleToJson(Tuple t, FieldSchema tupleFieldSchema) throws ExecException {
         JSONObject json = new JSONObject();
         List<FieldSchema> fieldSchemas = tupleFieldSchema.schema.getFields();
         for (int i=0; i<t.size(); i++) {
@@ -128,17 +128,18 @@ public class ToJson extends EvalFunc<String> {
             FieldSchema fieldSchema = fieldSchemas.get(i);
 
             // sometimes we want to skip fields with errors, instead of failing everything
-            if (dropFieldsWithErrors) {
-                try {
-                    json.put(fieldSchema.alias, fieldToJson(field, fieldSchema, dropFieldsWithErrors));
+            try {
+                json.put(fieldSchema.alias, fieldToJson(field, fieldSchema));
+            }
+            catch (ExecException e) {
+                if (_dropFieldsWithErrors) {
+                    LOG.error("Skipping bad field. Schema: " + fieldSchema + " Value: " + field, e);
                 }
-                catch (ExecException e) {
-                  LOG.error("Skipping bad field. Schema: " + fieldSchema + " Value: " + field, e);
+                else {
+                    throw e;
                 }
             }
-            else {
-                json.put(fieldSchema.alias, fieldToJson(field, fieldSchema, dropFieldsWithErrors));
-            }
+
         }
         return json;
     }
@@ -147,7 +148,7 @@ public class ToJson extends EvalFunc<String> {
      * Convert a Pig Bag to a JSON array
      */
     @SuppressWarnings("unchecked")
-    private static JSONArray bagToJson(DataBag bag, FieldSchema bagFieldSchema, boolean dropFieldsWithErrors) throws ExecException {
+    private JSONArray bagToJson(DataBag bag, FieldSchema bagFieldSchema) throws ExecException {
         JSONArray array = new JSONArray();
         FieldSchema tupleSchema = null;
         try {
@@ -158,19 +159,31 @@ public class ToJson extends EvalFunc<String> {
             e.printStackTrace();
         }
 
-        Iterator<Tuple> bagIterator = bag.iterator();
-        while(bagIterator.hasNext()) {
-            Tuple t = bagIterator.next();
-            JSONObject recJson = tupleToJson(t, tupleSchema, dropFieldsWithErrors);
+        for (Tuple t : bag) {
+            JSONObject recJson = tupleToJson(t, tupleSchema);
             array.add(recJson);
         }
         return array;
     }
 
     /**
+     * Convert a map to Json (only supports single level map of simple types)
+     */
+    private JSONObject mapToJson(Map<String, Object> map, FieldSchema mapFieldSchema)
+    {
+      LOG.warn("Maps are not fully supported yet. It only supports a single level of simple types.");
+      JSONObject json = new JSONObject();
+      for (Map.Entry<String, Object> entry : map.entrySet())
+      {
+        json.put(entry.getKey(), entry.getValue().toString());
+      }
+      return json;
+    }
+
+    /**
      * Find the type of a field and convert it to JSON as required.
      */
-    private static Object fieldToJson(Object value, FieldSchema fieldSchema, boolean dropFieldsWithErrors) throws ExecException {
+    private Object fieldToJson(Object value, FieldSchema fieldSchema) throws ExecException {
         switch (DataType.findType(value)) {
             // Native types that don't need converting
             case DataType.NULL:
@@ -183,13 +196,13 @@ public class ToJson extends EvalFunc<String> {
                 return value;
 
             case DataType.TUPLE:
-                return tupleToJson((Tuple)value, fieldSchema, dropFieldsWithErrors);
+                return tupleToJson((Tuple)value, fieldSchema);
 
             case DataType.BAG:
-                return bagToJson(DataType.toBag((DataBag)value), fieldSchema, dropFieldsWithErrors);
+                return bagToJson(DataType.toBag((DataBag)value), fieldSchema);
 
             case DataType.MAP:
-                throw new ExecException("Map type is not currently supported with JsonStorage");
+                return mapToJson(DataType.toMap(value), fieldSchema);
 
             case DataType.BYTE:
                 throw new ExecException("Byte type is not currently supported with JsonStorage");
@@ -198,7 +211,7 @@ public class ToJson extends EvalFunc<String> {
                 throw new ExecException("ByteArray type is not currently supported with JsonStorage");
 
             default:
-                throw new ExecException("Unknown type is not currently supported with JsonStorage");
+                throw new ExecException("Unknown type: " + DataType.findType(value) + " is not currently supported with JsonStorage");
         }
     }
 }
