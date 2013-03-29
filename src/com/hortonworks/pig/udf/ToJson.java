@@ -1,10 +1,33 @@
+/*
+ * Copyright 2012 Russell Jurney
+ *
+ *    Licensed under the Apache License, Version 2.0 (the "License");
+ *    you may not use this file except in compliance with the License.
+ *    You may obtain a copy of the License at
+ *
+ *        http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *    Unless required by applicable law or agreed to in writing, software
+ *    distributed under the License is distributed on an "AS IS" BASIS,
+ *    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *    See the License for the specific language governing permissions and
+ *    limitations under the License.
+ */
+
+/**
+ * Modifications: By Russell Melick
+ * Modified Constructor to accept parameter to drop fields with errors.
+ * Converted static methods to instance methods for ease of using _dropFieldsWithErrors
+ * Added map
+ */
+
 package com.hortonworks.pig.udf;
 
+import java.util.Map;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.pig.backend.executionengine.ExecException;
 import org.apache.pig.impl.logicalLayer.schema.Schema.FieldSchema;
-import org.apache.pig.builtin.LOG;
 import org.apache.pig.data.DataBag;
 import org.apache.pig.data.DataType;
 import org.apache.pig.data.Tuple;
@@ -16,7 +39,6 @@ import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
 
 import java.io.IOException;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Properties;
 
@@ -24,7 +46,24 @@ public class ToJson extends EvalFunc<String> {
 
     private static final Log LOG = LogFactory.getLog(ToJson.class);
 
+    private final boolean _dropFieldsWithErrors;
+
     Properties myProperties = null;
+
+    public ToJson()
+    {
+      this("false");
+    }
+
+    public ToJson(String dropFieldsWithErrors)
+    {
+        if ("true".equals(dropFieldsWithErrors) || "dropFieldsWithErrors".equals(dropFieldsWithErrors)) {
+            _dropFieldsWithErrors = true;
+        }
+        else {
+            _dropFieldsWithErrors = false;
+        }
+    }
 
     public String exec(Tuple input) throws IOException {
         if (input == null || input.size() == 0)
@@ -82,13 +121,26 @@ public class ToJson extends EvalFunc<String> {
      * Convert a Pig Tuple into a JSON object
      */
     @SuppressWarnings("unchecked")
-    protected static JSONObject tupleToJson(Tuple t, FieldSchema tupleFieldSchema) throws ExecException {
+    protected JSONObject tupleToJson(Tuple t, FieldSchema tupleFieldSchema) throws ExecException {
         JSONObject json = new JSONObject();
         List<FieldSchema> fieldSchemas = tupleFieldSchema.schema.getFields();
         for (int i=0; i<t.size(); i++) {
             Object field = t.get(i);
             FieldSchema fieldSchema = fieldSchemas.get(i);
-            json.put(fieldSchema.alias, fieldToJson(field, fieldSchema));
+
+            // sometimes we want to skip fields with errors, instead of failing everything
+            try {
+                json.put(fieldSchema.alias, fieldToJson(field, fieldSchema));
+            }
+            catch (ExecException e) {
+                if (_dropFieldsWithErrors) {
+                    LOG.error("Skipping bad field. Schema: " + fieldSchema + " Value: " + field, e);
+                }
+                else {
+                    throw e;
+                }
+            }
+
         }
         return json;
     }
@@ -97,7 +149,7 @@ public class ToJson extends EvalFunc<String> {
      * Convert a Pig Bag to a JSON array
      */
     @SuppressWarnings("unchecked")
-    private static JSONArray bagToJson(DataBag bag, FieldSchema bagFieldSchema) throws ExecException {
+    private JSONArray bagToJson(DataBag bag, FieldSchema bagFieldSchema) throws ExecException {
         JSONArray array = new JSONArray();
         FieldSchema tupleSchema = null;
         try {
@@ -108,9 +160,7 @@ public class ToJson extends EvalFunc<String> {
             e.printStackTrace();
         }
 
-        Iterator<Tuple> bagIterator = bag.iterator();
-        while(bagIterator.hasNext()) {
-            Tuple t = bagIterator.next();
+        for (Tuple t : bag) {
             JSONObject recJson = tupleToJson(t, tupleSchema);
             array.add(recJson);
         }
@@ -118,9 +168,23 @@ public class ToJson extends EvalFunc<String> {
     }
 
     /**
+     * Convert a map to Json (only supports single level map of simple types)
+     */
+    private JSONObject mapToJson(Map<String, Object> map, FieldSchema mapFieldSchema)
+    {
+      LOG.warn("Maps are not fully supported yet. It only supports a single level of simple types.");
+      JSONObject json = new JSONObject();
+      for (Map.Entry<String, Object> entry : map.entrySet())
+      {
+        json.put(entry.getKey(), entry.getValue().toString());
+      }
+      return json;
+    }
+
+    /**
      * Find the type of a field and convert it to JSON as required.
      */
-    private static Object fieldToJson(Object value, FieldSchema fieldSchema) throws ExecException {
+    private Object fieldToJson(Object value, FieldSchema fieldSchema) throws ExecException {
         switch (DataType.findType(value)) {
             // Native types that don't need converting
             case DataType.NULL:
@@ -139,16 +203,16 @@ public class ToJson extends EvalFunc<String> {
                 return bagToJson(DataType.toBag((DataBag)value), fieldSchema);
 
             case DataType.MAP:
-                throw new ExecException("Map type is not current supported with JsonStorage");
+                return mapToJson(DataType.toMap(value), fieldSchema);
 
             case DataType.BYTE:
-                throw new ExecException("Byte type is not current supported with JsonStorage");
+                throw new ExecException("Byte type is not currently supported with JsonStorage");
 
             case DataType.BYTEARRAY:
-                throw new ExecException("ByteArray type is not current supported with JsonStorage");
+                throw new ExecException("ByteArray type is not currently supported with JsonStorage");
 
             default:
-                throw new ExecException("Unknown type is not current supported with JsonStorage");
+                throw new ExecException("Unknown type: " + DataType.findType(value) + " is not currently supported with JsonStorage");
         }
     }
 }
