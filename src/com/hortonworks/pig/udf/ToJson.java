@@ -18,6 +18,7 @@
  * Modifications: By Russell Melick
  * Modified Constructor to accept parameter to drop fields with errors.
  * Converted static methods to instance methods for ease of using _dropFieldsWithErrors
+ * Added map
  */
 
 package com.hortonworks.pig.udf;
